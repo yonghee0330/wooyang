@@ -14,6 +14,7 @@ async function callAPI(action, payload = {}) {
   }
 }
 
+
 // sessionStorage는 브라우저를 닫으면 사라져 업무용 공용 PC에서 안전합니다.
 function setUser(user) {
   sessionStorage.setItem('wy_user', JSON.stringify(user));
