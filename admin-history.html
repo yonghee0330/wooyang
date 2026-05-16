@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>전체 신청 이력 - 우양재단 휴가관리 시스템</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="header-title" href="admin.html">우양재단 휴가관리 (관리자)</a>
+    <div class="header-right">
+      <span class="user-summary" id="userSummary">로딩 중...</span>
+      <a class="btn btn-secondary" href="dashboard.html">대시보드</a>
+      <button class="btn btn-secondary" type="button" onclick="logout()">로그아웃</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <nav class="admin-tabs" aria-label="관리자 메뉴">
+      <a class="admin-tab" href="admin.html">결재 대기</a>
+      <a class="admin-tab active" href="admin-history.html">전체 이력</a>
+      <a class="admin-tab" href="admin-employees.html">직원 현황</a>
+    </nav>
+
+    <section class="section-header">
+      <div>
+        <h1 class="page-title">전체 신청 이력</h1>
+        <p class="page-description">전체 휴가 신청 내역을 조회하고 CSV로 내려받을 수 있습니다.</p>
+      </div>
+      <button class="btn btn-primary" type="button" id="downloadButton">CSV 다운로드</button>
+    </section>
+
+    <section class="card filter-card">
+      <div class="filter-grid">
+        <div class="form-group">
+          <label for="statusFilter">상태</label>
+          <select id="statusFilter">
+            <option value="전체">전체</option>
+            <option value="대기">대기</option>
+            <option value="승인">승인</option>
+            <option value="반려">반려</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="typeFilter">휴가종류</label>
+          <select id="typeFilter">
+            <option value="전체">전체</option>
+            <option value="연차">연차</option>
+            <option value="반차">반차</option>
+            <option value="병가">병가</option>
+            <option value="경조사">경조사</option>
+            <option value="공가">공가</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="searchInput">검색</label>
+          <input id="searchInput" type="search" placeholder="신청자명 또는 사번">
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-wrap wide-table">
+        <table>
+          <thead>
+            <tr>
+              <th>신청번호</th>
+              <th>신청자</th>
+              <th>부서</th>
+              <th>휴가종류</th>
+              <th>유급</th>
+              <th>기간</th>
+              <th>일수</th>
+              <th>사유</th>
+              <th>상태</th>
+              <th>신청일시</th>
+              <th>처리일시</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody id="historyRows">
+            <tr>
+              <td class="empty-state" colspan="12">전체 이력을 불러오는 중입니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/app.js"></script>
+  <script>
+    const user = requireLogin();
+    let allRows = [];
+    let filteredRows = [];
+
+    function isAdmin(currentUser) {
+      return currentUser && (currentUser.권한 || currentUser.role || currentUser.authority) === '관리자';
+    }
+
+    function denyAccess() {
+      toast('관리자만 접근 가능합니다', 'warning');
+      setTimeout(() => {
+        location.href = 'dashboard.html';
+      }, 700);
+    }
+
+    function isAPISuccess(data) {
+      return Array.isArray(data) || !data || (data.success !== false && data.ok !== false);
+    }
+
+    function getList(data) {
+      if (Array.isArray(data)) return data;
+      return data.leaves || data.requests || data.history || data.data || [];
+    }
+
+    function getField(item, keys, fallback = '') {
+      for (const key of keys) {
+        if (item[key] !== undefined && item[key] !== null && item[key] !== '') return item[key];
+      }
+      return fallback;
+    }
+
+    function normalizeRow(item) {
+      const startDate = getField(item, ['시작일', 'startDate']);
+      const endDate = getField(item, ['종료일', 'endDate']);
+
+      return {
+        신청번호: getField(item, ['신청번호', 'requestId', 'id', 'no']),
+        신청자사번: getField(item, ['신청자사번', 'empId', 'employeeId']),
+        신청자이름: getField(item, ['신청자이름', 'name', 'applicantName', '신청자']),
+        부서: getField(item, ['부서', 'department', 'dept']),
+        휴가종류: getField(item, ['휴가종류', 'type', 'leaveType']),
+        유급구분: getField(item, ['유급구분', 'paid']),
+        시작일: startDate,
+        종료일: endDate,
+        사용일수: getField(item, ['사용일수', 'days', 'usedDays'], '0'),
+        사유: getField(item, ['사유', 'reason']),
+        상태: getField(item, ['상태', 'status'], '대기'),
+        신청일시: getField(item, ['신청일시', 'createdAt', 'appliedAt', 'requestedAt']),
+        처리일시: getField(item, ['처리일시', 'processedAt', 'approvedAt', 'rejectedAt']),
+        비고: getField(item, ['비고', 'note', 'memo', 'rejectReason'])
+      };
+    }
+
+    function renderHeader() {
+      const name = getDisplayName(user);
+      const department = getDepartment(user);
+      const position = getPosition(user);
+      document.getElementById('userSummary').textContent = `${name}님 (${department}/${position})`;
+    }
+
+    function getStatusBadge(status) {
+      let className = 'badge-waiting';
+      if (status === '승인') className = 'badge-approved';
+      if (status === '반려') className = 'badge-rejected';
+      return `<span class="badge ${className}">${escapeHTML(status)}</span>`;
+    }
+
+    function applyFilters() {
+      const status = document.getElementById('statusFilter').value;
+      const type = document.getElementById('typeFilter').value;
+      const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+
+      filteredRows = allRows.filter((row) => {
+        const matchesStatus = status === '전체' || row.상태 === status;
+        const matchesType = type === '전체' || (type === '반차' ? row.휴가종류.includes('반차') : row.휴가종류 === type);
+        const target = `${row.신청자이름} ${row.신청자사번}`.toLowerCase();
+        const matchesKeyword = !keyword || target.includes(keyword);
+        return matchesStatus && matchesType && matchesKeyword;
+      });
+
+      renderRows();
+    }
+
+    function renderRows() {
+      const tbody = document.getElementById('historyRows');
+
+      if (filteredRows.length === 0) {
+        tbody.innerHTML = '<tr><td class="empty-state" colspan="12">조건에 맞는 신청 이력이 없습니다.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filteredRows.map((row) => {
+        const period = row.시작일 && row.종료일 ? `${row.시작일} ~ ${row.종료일}` : '-';
+
+        return `
+          <tr>
+            <td>${escapeHTML(row.신청번호 || '-')}</td>
+            <td>${escapeHTML(row.신청자이름 || '-')}</td>
+            <td>${escapeHTML(row.부서 || '-')}</td>
+            <td>${escapeHTML(row.휴가종류 || '-')}</td>
+            <td>${escapeHTML(row.유급구분 || '-')}</td>
+            <td>${escapeHTML(period)}</td>
+            <td>${escapeHTML(row.사용일수 || '0')}일</td>
+            <td>${escapeHTML(row.사유 || '-')}</td>
+            <td>${getStatusBadge(row.상태 || '대기')}</td>
+            <td>${escapeHTML(row.신청일시 || '-')}</td>
+            <td>${escapeHTML(row.처리일시 || '-')}</td>
+            <td>${escapeHTML(row.비고 || '-')}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadHistory() {
+      try {
+        const data = await callAPI('getAllLeaves', { empId: getEmpId(user) });
+
+        if (!isAPISuccess(data)) {
+          toast(getErrorMessage(data, '전체 이력을 불러오지 못했습니다.'), 'error');
+          allRows = [];
+        } else {
+          allRows = getList(data).map(normalizeRow);
+        }
+
+        applyFilters();
+      } catch (error) {
+        allRows = [];
+        applyFilters();
+        toast(error.message || '전체 이력 로딩 중 오류가 발생했습니다.', 'error');
+      }
+    }
+
+    function getCSVFilename() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `wooyang_leaves_${yyyy}${mm}${dd}.csv`;
+    }
+
+    function downloadCSV(rows, filename) {
+      const headers = ['신청번호', '신청자사번', '신청자이름', '부서', '휴가종류', '유급구분', '시작일', '종료일', '사용일수', '사유', '상태', '신청일시', '처리일시', '비고'];
+      const csv = '\uFEFF' + [headers.join(',')]
+        .concat(rows.map((r) => headers.map((h) => {
+          const keyMap = {
+            신청번호: '신청번호',
+            신청자사번: '신청자사번',
+            신청자이름: '신청자이름',
+            부서: '부서',
+            휴가종류: '휴가종류',
+            유급구분: '유급구분',
+            시작일: '시작일',
+            종료일: '종료일',
+            사용일수: '사용일수',
+            사유: '사유',
+            상태: '상태',
+            신청일시: '신청일시',
+            처리일시: '처리일시',
+            비고: '비고'
+          };
+          const key = keyMap[h] || h;
+          const v = String(r[h] || r[key] || '').replace(/"/g, '""');
+          return `"${v}"`;
+        }).join(',')))
+        .join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('statusFilter').addEventListener('change', applyFilters);
+    document.getElementById('typeFilter').addEventListener('change', applyFilters);
+    document.getElementById('searchInput').addEventListener('input', applyFilters);
+    document.getElementById('downloadButton').addEventListener('click', () => {
+      downloadCSV(filteredRows, getCSVFilename());
+    });
+
+    if (user && isAdmin(user)) {
+      renderHeader();
+      loadHistory();
+    } else if (user) {
+      denyAccess();
+    }
+  </script>
+</body>
+</html>

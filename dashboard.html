@@ -12,6 +12,7 @@
     <a class="header-title" href="dashboard.html">우양재단 휴가관리</a>
     <div class="header-right">
       <span class="user-summary" id="userSummary">로딩 중...</span>
+      <a class="btn btn-primary" id="adminButton" href="admin.html" style="display: none;">관리자 페이지</a>
       <button class="btn btn-secondary" type="button" onclick="logout()">로그아웃</button>
     </div>
   </header>
@@ -101,9 +102,11 @@
       const name = getDisplayName(merged);
       const department = getDepartment(merged);
       const position = getPosition(merged);
+      const role = merged.권한 || merged.role || merged.authority;
 
       document.getElementById('userSummary').textContent = `${name}님 (${department}/${position})`;
       document.getElementById('greetingText').textContent = `${name}님, ${getGreetingLabel()} 👋`;
+      document.getElementById('adminButton').style.display = role === '관리자' ? 'inline-flex' : 'none';
     }
 
     function renderStats(info) {
