@@ -1,17 +1,17 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbw_y8DGoro28HUdZeICMMr6tu1jXdzoUByMby4y0buT9RiqxTkh9EJ8ZH9aC3AXB8CDcA/exec';
 
 async function callAPI(action, payload = {}) {
-  // Apps Script CORS preflight를 피하기 위해 Content-Type 헤더를 설정하지 않습니다.
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action, ...payload })
-  });
-
-  if (!res.ok) {
-    throw new Error('API 호출 중 오류가 발생했습니다.');
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      body: JSON.stringify({ action, ...payload })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('API 호출 실패:', err);
+    return { success: false, message: '네트워크 오류: ' + err.message };
   }
-
-  return await res.json();
 }
 
 // sessionStorage는 브라우저를 닫으면 사라져 업무용 공용 PC에서 안전합니다.
